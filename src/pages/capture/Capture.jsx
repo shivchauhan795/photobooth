@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { stateContext } from '../../utils/context/stateContext';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
 const Capture = () => {
     const navigate = useNavigate();
@@ -8,14 +9,29 @@ const Capture = () => {
     const canvasRef = useRef(null);
 
     const { screenshots, setScreenshots } = stateContext();
+    const [photoToBeSent, setPhotoToBeSent] = useState([])
     const [display, setDisplay] = useState(null);
     const [running, setRunning] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
 
     const startCamera = async () => {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         if (videoRef.current) videoRef.current.srcObject = stream;
     };
+
+    const base64ToFile = (base64Data, filename) => {
+        const arr = base64Data.split(',');
+        const mime = arr[0].match(/:(.*?);/)[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+            u8arr[n] = bstr.charCodeAt(n);
+        }
+        return new File([u8arr], filename, { type: mime });
+    };
+
 
     const takeScreenshot = () => {
         const video = videoRef.current;
@@ -29,6 +45,8 @@ const Capture = () => {
 
         const img = canvas.toDataURL("image/png");
         setScreenshots((prev) => [...prev, img]);
+        const file = base64ToFile(img, `screenshot_${Date.now()}.png`);
+        setPhotoToBeSent((prev) => [...prev, file]);
     };
 
     const wait = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -63,6 +81,38 @@ const Capture = () => {
     useEffect(() => {
         startCamera();
     }, [])
+
+
+    const sendImages = async () => {
+        setIsLoading(true);
+        try {
+            const formdata = new FormData();
+            photoToBeSent.forEach((image) => {
+                formdata.append(`images`, image);
+            });
+
+            // Send to backend
+            const response = await axios.post(
+                `${import.meta.env.VITE_BACKEND_URL}/v1/api/media/images`,
+                formdata, {
+                headers: {
+                    "Content-Type": "multipart/form-data",
+                },
+            }
+            );
+
+            if (response.status === 201) {
+                navigate("/customize");
+            } else {
+                console.log("error");
+            }
+            setIsLoading(false);
+        } catch (err) {
+            console.log(err);
+            setIsLoading(false);
+        }
+    };
+
 
 
     return (
@@ -111,12 +161,14 @@ const Capture = () => {
                         </button>
                         <button
                             onClick={() => {
-                                navigate('/customize');
+                                sendImages();
                             }}
-                            disabled={running}
+                            disabled={running || isLoading}
                             className="px-4 py-2 bg-green-600 text-white rounded disabled:opacity-50 cursor-pointer"
                         >
-                            Customize and Download
+                            {
+                                isLoading ? "Building your Amazing Photo Strip..." : 'Customize and Download'
+                            }
                         </button>
                     </div>
                 }
